@@ -140,7 +140,7 @@ static void shuffle(struct card_deck *deck){
 }
 
 static int __init blackjack_init(void) {
-    int ret = misc_register(&magic8ball);
+    int ret = misc_register(&blackjack);
     if (ret < 0){
         printk(KERN_ERR "Blackjack module failed to load\n");
         return ret;
@@ -150,7 +150,7 @@ static int __init blackjack_init(void) {
 } 
 
 static void __exit blackjack_exit(void) {
-    misc_deregister(&magic8ball);
+    misc_deregister(&blackjack);
     printk(KERN_ALERT "Blackjack module unloaded\n");
 }
 
