@@ -1,0 +1,32 @@
+Overview
+The Magic 8 Ball Kernel Module, is a Linux kernel module that mimics the functionality of the classic toy Magic 8 Ball. It's a read-only virtual character device that provides random responses to user's queries. 
+
+
+
+Functionality:
+
+Implements /dev/magic8ball, a virtual character device.
+
+The device is read-only. Any write attempts return an EPERM error.
+
+Each time the device is opened, it randomly selects a quote from a predefined list and returns it to the user.
+
+You can test the device using the cat command in the terminal.
+
+
+
+Loading/Unloading the module:
+
+Run "make" to compile the module. This should create magic8ball.ko.
+
+Load the module into the kernel using sudo insmod magic8ball.ko. This will create a virtual device /dev/magic8ball.
+
+Unload the module using sudo rmmod magic8ball.
+
+
+
+Running the device:
+
+To get a response from the Magic 8 Ball, use cat /dev/magic8ball. Each execution of the above command will display a random response.
+
+Any kernel messages can be viewed in dmesg.
