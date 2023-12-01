@@ -9,11 +9,15 @@ MODULE_LICENSE("GPL");
 
 static int device_open(struct inode *inode, struct file *file);
 static int device_close(struct inode *inode, struct file *file);
+static ssize_t device_read(struct file *file, char __user *buff, size_t len, loff_t *offset);
+static ssize_t device_write(struct file *file, const char __user *buff, size_t len, loff_t *offset);
 
 static struct file_operations fops = {
     .owner = THIS_MODULE,
     .open = device_open,
-    .release = device_close
+    .release = device_close,
+    .read = device_read,
+    .write = device_write
 };
 
 static struct miscdevice magic8ball = {
@@ -24,26 +28,26 @@ static struct miscdevice magic8ball = {
 };
 
 static const char *strings[] = {
-    "It is certain.",
-    "It is decidedly so.",
-    "Without a doubt.",
-    "Yes, definitely.",
-    "You may rely on it.",
-    "As I see it, yes.",
-    "Most likely.",
-    "Outlook good.",
-    "Yes.",
-    "Signs point to yes.",
-    "Reply hazy, try again.",
-    "Ask again later.",
-    "Better not tell you now.",
-    "Cannot predict now.",
-    "Concentrate and ask again.",
-    "Don't count on it.",
-    "My reply is no.",
-    "My sources say no.",
-    "Outlook not so good.",
-    "Very doubtful."
+    "It is certain.\n",
+    "It is decidedly so.\n",
+    "Without a doubt.\n",
+    "Yes, definitely.\n",
+    "You may rely on it.\n",
+    "As I see it, yes.\n",
+    "Most likely.\n",
+    "Outlook good.\n",
+    "Yes.\n",
+    "Signs point to yes.\n",
+    "Reply hazy, try again.\n",
+    "Ask again later.\n",
+    "Better not tell you now.\n",
+    "Cannot predict now.\n",
+    "Concentrate and ask again.\n",
+    "Don't count on it.\n",
+    "My reply is no.\n",
+    "My sources say no.\n",
+    "Outlook not so good.\n",
+    "Very doubtful.\n"
 };
 
 static int device_open(struct inode *inode, struct file *file) {
@@ -54,6 +58,27 @@ static int device_open(struct inode *inode, struct file *file) {
 static int device_close(struct inode *inode, struct file *file) {
     printk(KERN_INFO "Magic8Ball device closed\n");
     return 0;
+}
+
+static ssize_t device_read(struct file *file, char __user *buff, size_t len, loff_t *offset){
+    unsigned int rand_num = prandom_u32();
+    rand_num %= ARRAY_SIZE(strings);
+
+    size_t str_len = strlen(strings[rand_num]);
+    if((str_len) > len){
+        str_len = len;
+    }
+
+    if(copy_to_user(buff, string[rand_num], str_len)){
+        return -EFAULT;
+    }
+
+    //*offset += str_len;
+    return str_len;
+}
+
+static ssize_t device_write(struct file *file, const char __user *buff, size_t len, loff_t *offset){
+    return -EPERM;
 }
 
 static int __init magic8ball_init(void) {
