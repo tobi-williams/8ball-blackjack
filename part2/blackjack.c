@@ -6,6 +6,7 @@
 #include <linux/miscdevice.h>
 #include <linux/fs.h>
 #include <linux/prandom.h>
+#include <linux/string.h>
 
 MODULE_LICENSE("GPL");
 
@@ -32,7 +33,7 @@ static struct miscdevice blackjack = {
 };
 
 
-static const char *card_deck[] = {
+static char *card_deck[] = {
 	"Ace of Spades\n",
 	"2 of Spades\n",
 	"3 of Spades\n",
@@ -87,7 +88,7 @@ static const char *card_deck[] = {
 	"King of Clubs\n"
 };
 
-static int deck_numbers[] = {
+static int card_numbers[] = {
 	1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
 	14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
 	27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 29,
@@ -122,11 +123,53 @@ static int device_close(struct inode *inode, struct file *file) {
 }
 
 static ssize_t device_read(struct file *file, char __user *buff, size_t len, loff_t *offset){
-    return -EPERM;
+    //return -EPERM;
+    size_t bytes_to_copy;
+    
+    if(*offset > 0){
+    	return 0;
+    }
+    
+    if (len >= strlen(card_deck[1])){
+    	bytes_to_copy = strlen(card_deck[1]);
+    } else{
+    	bytes_to_copy = len;
+    }
+    
+    if(copy_to_user(buff, card_deck[1], bytes_to_copy)){
+    	return -EFAULT;
+    }
+    
+    *offset += bytes_to_copy;
+    return bytes_to_copy;
 }
 
 static ssize_t device_write(struct file *file, const char __user *buff, size_t len, loff_t *offset){
-    return -EPERM;
+     //return -EPERM;
+     
+     char k_buff[8];
+     size_t bytes_left;
+     size_t dest_size;
+     
+     if (len > sizeof(k_buff)){
+     	len = sizeof(k_buff);
+     }
+     
+     
+     bytes_left = copy_from_user(k_buff, buff, len);
+     
+     k_buff[len] = '\0';
+     
+     dest_size = sizeof(card_deck[0]);
+     mutex_lock(&blackjack_mutex);
+     //snprintf(card_deck[0], dest_size, "%s", k_buff);
+     //strncpy(card_deck[0], k_buff, dest_size);
+     card_deck[0] = k_buff;
+     mutex_unlock(&blackjack_mutex);
+     
+     *offset += (len - bytes_left);
+     
+     return (len - bytes_left);
 }
 
 static void shuffle(int card_numbers[]){
@@ -158,6 +201,7 @@ static int __init blackjack_init(void) {
         return ret;
     }
     printk(KERN_ALERT "Blackjack module loaded successfully\n");
+    mutex_init(&blackjack_mutex);
     return 0;
 } 
 
