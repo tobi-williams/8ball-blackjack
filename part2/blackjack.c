@@ -14,8 +14,9 @@ static int device_open(struct inode *inode, struct file *file);
 static int device_close(struct inode *inode, struct file *file);
 static ssize_t device_read(struct file *file, char __user *buff, size_t len, loff_t *offset);
 static ssize_t device_write(struct file *file, const char __user *buff, size_t len, loff_t *offset);
-static void shuffle(int card_numbers[]);
-static void reset(int card_numbers[]);
+static void shuffle(void);
+static void reset(void);
+static int write_msg(char msg[]);
 
 static struct file_operations fops = {
     .owner = THIS_MODULE,
@@ -107,7 +108,7 @@ struct game_state {
     int player_score;
 };
 
-
+static char msg_buffer[1024] = {0};
 static struct game_state current_game;
 static DEFINE_MUTEX(blackjack_mutex);
 
@@ -126,72 +127,115 @@ static ssize_t device_read(struct file *file, char __user *buff, size_t len, lof
     //return -EPERM;
     size_t bytes_to_copy;
     
-    if(*offset > 0){
+    /*if(*offset >= strlen(msg_buffer)){
     	return 0;
-    }
+    }*/
     
-    if (len >= strlen(card_deck[1])){
-    	bytes_to_copy = strlen(card_deck[1]);
+    if (len >= strlen(msg_buffer)){
+    	bytes_to_copy = strlen(msg_buffer);
     } else{
     	bytes_to_copy = len;
     }
     
-    if(copy_to_user(buff, card_deck[1], bytes_to_copy)){
+    if(copy_to_user(buff, msg_buffer, bytes_to_copy)){
     	return -EFAULT;
     }
     
-    *offset += bytes_to_copy;
+    //*offset += bytes_to_copy;
+    memset(msg_buffer, 0, 1024);
+    
     return bytes_to_copy;
 }
 
 static ssize_t device_write(struct file *file, const char __user *buff, size_t len, loff_t *offset){
-     //return -EPERM;
-     
-     char k_buff[8];
-     size_t bytes_left;
-     size_t dest_size;
-     
-     if (len > sizeof(k_buff)){
-     	len = sizeof(k_buff);
-     }
-     
-     
-     bytes_left = copy_from_user(k_buff, buff, len);
-     
-     k_buff[len] = '\0';
-     
-     dest_size = sizeof(card_deck[0]);
-     mutex_lock(&blackjack_mutex);
-     //snprintf(card_deck[0], dest_size, "%s", k_buff);
-     //strncpy(card_deck[0], k_buff, dest_size);
-     card_deck[0] = k_buff;
-     mutex_unlock(&blackjack_mutex);
-     
-     *offset += (len - bytes_left);
-     
-     return (len - bytes_left);
+	char command[256];
+
+	if (len > (sizeof(command) - 1)){
+		return -EINVAL;
+	}
+	command[len] = '\0';
+
+	if (copy_from_user(command, buff, len)){
+		return -EFAULT;
+	}
+
+	if (strncasecmp(command, "RESET", 5) == 0){
+		reset();
+		current_game.current_state = 1;
+		
+		if (write_msg("RESET")){
+			return -ENOSPC;
+		}
+	}
+	
+	if (strncasecmp(command, "SHUFFLE", 7) == 0){
+		
+		if (current_game.current_state == 0){
+			
+			if (write_msg("INVALID STATE")){
+				return -ENOSPC;
+			}
+		} 
+		else{
+			shuffle();
+			current_game.current_state = 2;
+			
+			if (write_msg("SHUFFLE")){
+				return -ENOSPC;
+			}
+		}
+	}
+	
+	return len;
 }
 
-static void shuffle(int card_numbers[]){
+static void shuffle(){
     size_t i, j;
     int tmp;
     unsigned int rand_gen = prandom_u32();
 
 
     for (i = 0; i < 52; i++) {
-        j = ((i * 7) * rand_gen);
+        j = (((i + 1) * 7) * rand_gen);
         j %= 52;
+        
+        mutex_lock(&blackjack_mutex);
         tmp = card_numbers[j];
         card_numbers[j] = card_numbers[i];
         card_numbers[i] = tmp;
+        mutex_unlock(&blackjack_mutex);
     }
 }
 
-static void reset(int card_numbers[]){
+static void reset(){
 	int i;
 	for (i = 0; i < 52; i++){
+		mutex_lock(&blackjack_mutex);
 		card_numbers[i] = (i + 1);
+		mutex_unlock(&blackjack_mutex);
 	}
+}
+
+static int write_msg(char msg[]){
+	mutex_lock(&blackjack_mutex);
+	
+	if ((strlen(msg_buffer) + 13) > 1024){
+		mutex_unlock(&blackjack_mutex);
+		return 1;
+	}
+	
+	if (strncmp(msg, "INVALID STATE", 13) == 0){
+		strcat(msg_buffer, "Invalid Sequence of States; Perform RESET before SHUFFLE.\n");
+	}
+	else if (strncmp(msg, "RESET", 5) == 0){
+		strcat(msg_buffer, "Deck Reset.\n");
+	}
+	else if (strncmp(msg, "SHUFFLE", 7) == 0){
+		strcat(msg_buffer, "Deck Shuffled.\n");
+	}
+	
+	mutex_unlock(&blackjack_mutex);
+	return 0;
 }
 
 static int __init blackjack_init(void) {
@@ -202,6 +246,11 @@ static int __init blackjack_init(void) {
     }
     printk(KERN_ALERT "Blackjack module loaded successfully\n");
     mutex_init(&blackjack_mutex);
+    
+    current_game.current_state = 0;
+    current_game.player_score = 0;
+    current_game.dealer_score = 0;
+    
     return 0;
 } 
 
