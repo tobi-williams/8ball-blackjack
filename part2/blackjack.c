@@ -17,6 +17,9 @@ static ssize_t device_write(struct file *file, const char __user *buff, size_t l
 static void shuffle(void);
 static void reset(void);
 static int write_msg(char msg[]);
+static int get_card_value(int num);
+static int calculate_score(char player[]);
+static int deal(void);
 
 static struct file_operations fops = {
     .owner = THIS_MODULE,
@@ -89,23 +92,27 @@ static char *card_deck[] = {
 	"King of Clubs\n"
 };
 
-static int card_numbers[] = {
-	1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
-	14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
-	27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 29,
-	40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52
-};
+/*static int card_numbers[] = {
+	0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+	13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+	26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38,
+	39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51
+};*/
 
 enum state {
 	DISABLED = 0,
 	RESET = 1,
 	SHUFFLED = 2,
+	ONGOING = 3,
 };
 
 struct game_state {
     enum state current_state;
     int dealer_score;
     int player_score;
+    int card_numbers[52];
+    int players_hand[15];
+    int dealers_hand[15];
 };
 
 static char msg_buffer[1024] = {0};
@@ -149,6 +156,7 @@ static ssize_t device_read(struct file *file, char __user *buff, size_t len, lof
 
 static ssize_t device_write(struct file *file, const char __user *buff, size_t len, loff_t *offset){
 	char command[256];
+	int i, card_dealt;
 
 	if (len > (sizeof(command) - 1)){
 		return -EINVAL;
@@ -159,10 +167,11 @@ static ssize_t device_write(struct file *file, const char __user *buff, size_t l
 		return -EFAULT;
 	}
 
+
+
+
 	if (strncasecmp(command, "RESET", 5) == 0){
 		reset();
-		current_game.current_state = 1;
-		
 		if (write_msg("RESET")){
 			return -ENOSPC;
 		}
@@ -178,13 +187,57 @@ static ssize_t device_write(struct file *file, const char __user *buff, size_t l
 		} 
 		else{
 			shuffle();
-			current_game.current_state = 2;
-			
 			if (write_msg("SHUFFLE")){
 				return -ENOSPC;
 			}
 		}
 	}
+	
+	if (strncasecmp(command, "DEAL", 4) == 0){
+		card_dealt = deal();
+		if (card_dealt == -1){
+			printk("%s", "Error: No more cards in deck");
+		}
+		current_game.players_hand[0] = card_dealt;
+		
+		card_dealt = deal();
+		if (card_dealt == -1){
+			printk("%s", "Error: No more cards in deck");
+		}
+		current_game.players_hand[1] = card_dealt;
+		
+		
+		card_dealt = deal();
+		if (card_dealt == -1){
+			printk("%s", "Error: No more cards in deck");
+		}
+		current_game.dealers_hand[0] = card_dealt;
+		
+		card_dealt = deal();
+		if (card_dealt == -1){
+			printk("%s", "Error: No more cards in deck");
+		}
+		current_game.dealers_hand[1] = card_dealt;
+		
+		
+		if (write_msg("PLAYER")){
+				return -ENOSPC;
+			}
+	}
+	
+	/*ret = kstrtoint(command, 10, &num);
+	if (ret == 0){
+		printk("%d", get_card_value(num));
+	}
+	else{
+		return -EFAULT;
+	}
+	
+	if (strncasecmp(command, "print", 5) == 0){
+		for (i = 0; i < 15; i++){
+			printk("%d", current_game.players_hand[i]);
+		}
+	}*/
 	
 	return len;
 }
@@ -194,32 +247,44 @@ static void shuffle(){
     int tmp;
     unsigned int rand_gen = prandom_u32();
 
-
+	mutex_lock(&blackjack_mutex);
+	current_game.current_state = 2;
+	
     for (i = 0; i < 52; i++) {
         j = (((i + 1) * 7) * rand_gen);
         j %= 52;
-        
-        mutex_lock(&blackjack_mutex);
-        tmp = card_numbers[j];
-        card_numbers[j] = card_numbers[i];
-        card_numbers[i] = tmp;
-        mutex_unlock(&blackjack_mutex);
+        tmp = current_game.card_numbers[j];
+        current_game.card_numbers[j] = current_game.card_numbers[i];
+        current_game.card_numbers[i] = tmp;
     }
+    
+    mutex_unlock(&blackjack_mutex);
 }
 
 static void reset(){
 	int i;
+	
+	mutex_lock(&blackjack_mutex);
+	current_game.current_state = 1;
+	current_game.player_score = 0;
+	current_game.dealer_score = 0;
+	
 	for (i = 0; i < 52; i++){
-		mutex_lock(&blackjack_mutex);
-		card_numbers[i] = (i + 1);
-		mutex_unlock(&blackjack_mutex);
+		current_game.card_numbers[i] = i;
 	}
+	
+	memset(current_game.players_hand, -1, sizeof(current_game.players_hand));
+	memset(current_game.dealers_hand, -1, sizeof(current_game.dealers_hand));
+	
+	mutex_unlock(&blackjack_mutex);
 }
 
 static int write_msg(char msg[]){
+	int i;
+	char tmp[10];
 	mutex_lock(&blackjack_mutex);
 	
-	if ((strlen(msg_buffer) + 13) > 1024){
+	if ((strlen(msg_buffer) + 60) > 1024){
 		mutex_unlock(&blackjack_mutex);
 		return 1;
 	}
@@ -233,9 +298,112 @@ static int write_msg(char msg[]){
 	else if (strncmp(msg, "SHUFFLE", 7) == 0){
 		strcat(msg_buffer, "Deck Shuffled.\n");
 	}
+	else if (strncmp(msg, "PLAYER", 6) == 0){
+		strcat(msg_buffer, "Player draws the following card(s)\n");
+		for (i = 0; i < 15; i++){
+			if(current_game.players_hand[i] == -1){
+				mutex_unlock(&blackjack_mutex);
+				break;
+			}
+			else{
+				strcat(msg_buffer, card_deck[current_game.players_hand[i]]);
+			}
+		}
+		snprintf(tmp, 10, "%d\n", calculate_score("PLAYER"));
+		strcat(msg_buffer, "Player has a total of ");
+		strcat(msg_buffer, tmp);
+	}
 	
 	mutex_unlock(&blackjack_mutex);
 	return 0;
+}
+
+static int get_card_value(int num){
+	int value;
+	//printk("%d", num);
+	
+	/*if ((num < 0) || (num > 51)){
+		return -1;
+	}*/
+	
+	value = num % 13;
+	value += 1;
+	
+	if (value == 1){
+		return 11;
+	}
+	else if (value > 10){
+		return 10;
+	}
+	else{
+		return value;
+	}
+}
+
+static int calculate_score(char player[]){
+	int i, total, ret;
+	
+	if (strncmp(player, "PLAYER", 6) == 0){
+		for (i = 0; i < 15; i++){
+			if(current_game.players_hand[i] == -1){
+				mutex_lock(&blackjack_mutex);
+				current_game.player_score = total;
+				mutex_unlock(&blackjack_mutex);
+				printk("%d", total);
+				return total;
+			}
+			
+			ret = get_card_value(current_game.players_hand[i]);
+			if(ret == -1){
+				return -1;
+			}
+			else {
+				total += ret;
+			}
+		}
+	}
+	else if ((strncmp(player, "DEALER", 6) == 0)){
+		for (i = 0; i < 15; i++){
+			if(current_game.dealers_hand[i] == -1){
+				mutex_lock(&blackjack_mutex);
+				current_game.dealer_score = total;
+				mutex_unlock(&blackjack_mutex);
+				return total;
+			}
+			
+			ret = get_card_value(current_game.dealers_hand[i]);
+			if(ret == -1){
+				return -1;
+			}
+			else {
+				total += ret;
+			}
+		}
+	}
+	else {
+		return -1;
+	}
+	
+	return total;
+}
+
+static int deal(){
+	int i, tmp;
+	
+	for (i = 0; i < 52; i++){
+		if (current_game.card_numbers[i] == -1){
+			continue;
+		}
+		else{
+			tmp = current_game.card_numbers[i];
+			mutex_lock(&blackjack_mutex);
+			current_game.card_numbers[i] = -1;
+			mutex_unlock(&blackjack_mutex);
+			return tmp;
+		}
+	}
+	
+	return -1;
 }
 
 static int __init blackjack_init(void) {
