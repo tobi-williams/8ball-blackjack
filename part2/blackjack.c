@@ -92,13 +92,6 @@ static char *card_deck[] = {
 	"King of Clubs\n"
 };
 
-/*static int card_numbers[] = {
-	0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
-	13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-	26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38,
-	39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51
-};*/
-
 enum state {
 	DISABLED = 0,
 	RESET = 1,
@@ -131,12 +124,8 @@ static int device_close(struct inode *inode, struct file *file) {
 }
 
 static ssize_t device_read(struct file *file, char __user *buff, size_t len, loff_t *offset){
-    //return -EPERM;
     size_t bytes_to_copy;
     
-    /*if(*offset >= strlen(msg_buffer)){
-    	return 0;
-    }*/
     
     if (len >= strlen(msg_buffer)){
     	bytes_to_copy = strlen(msg_buffer);
@@ -148,7 +137,6 @@ static ssize_t device_read(struct file *file, char __user *buff, size_t len, lof
     	return -EFAULT;
     }
     
-    //*offset += bytes_to_copy;
     memset(msg_buffer, 0, 1024);
     
     return bytes_to_copy;
@@ -194,50 +182,50 @@ static ssize_t device_write(struct file *file, const char __user *buff, size_t l
 	}
 	
 	if (strncasecmp(command, "DEAL", 4) == 0){
-		card_dealt = deal();
-		if (card_dealt == -1){
-			printk("%s", "Error: No more cards in deck");
-		}
-		current_game.players_hand[0] = card_dealt;
+		calculate_score("PLAYER");	calculate_score("DEALER");
 		
-		card_dealt = deal();
-		if (card_dealt == -1){
-			printk("%s", "Error: No more cards in deck");
+		for (i = 0; i < 2; i++){		//deal 2 cards to player
+			card_dealt = deal();
+			
+			if (card_dealt == -1){
+				if (write_msg("EMPTY DECK")){
+					return -ENOSPC;
+				}
+				mutex_lock(&blackjack_mutex);
+				current_game.current_state = 0;
+				mutex_unlock(&blackjack_mutex);
+				break;
+			}
+			
+			mutex_lock(&blackjack_mutex);
+			current_game.players_hand[i] = card_dealt;
+			mutex_unlock(&blackjack_mutex);
 		}
-		current_game.players_hand[1] = card_dealt;
+	
 		
-		
-		card_dealt = deal();
-		if (card_dealt == -1){
-			printk("%s", "Error: No more cards in deck");
+		for (i = 0; i < 2; i++){		//deal 2 cards to dealer
+			card_dealt = deal();
+			
+			if (card_dealt == -1){
+				if (write_msg("EMPTY DECK")){
+					return -ENOSPC;
+				}
+				mutex_lock(&blackjack_mutex);
+				current_game.current_state = 0;
+				mutex_unlock(&blackjack_mutex);
+				break;
+			}
+			
+			mutex_lock(&blackjack_mutex);
+			current_game.dealers_hand[i] = card_dealt;
+			mutex_unlock(&blackjack_mutex);
 		}
-		current_game.dealers_hand[0] = card_dealt;
-		
-		card_dealt = deal();
-		if (card_dealt == -1){
-			printk("%s", "Error: No more cards in deck");
-		}
-		current_game.dealers_hand[1] = card_dealt;
 		
 		
 		if (write_msg("PLAYER")){
 				return -ENOSPC;
 			}
 	}
-	
-	/*ret = kstrtoint(command, 10, &num);
-	if (ret == 0){
-		printk("%d", get_card_value(num));
-	}
-	else{
-		return -EFAULT;
-	}
-	
-	if (strncasecmp(command, "print", 5) == 0){
-		for (i = 0; i < 15; i++){
-			printk("%d", current_game.players_hand[i]);
-		}
-	}*/
 	
 	return len;
 }
@@ -272,7 +260,7 @@ static void reset(){
 	for (i = 0; i < 52; i++){
 		current_game.card_numbers[i] = i;
 	}
-	
+
 	memset(current_game.players_hand, -1, sizeof(current_game.players_hand));
 	memset(current_game.dealers_hand, -1, sizeof(current_game.dealers_hand));
 	
@@ -299,7 +287,7 @@ static int write_msg(char msg[]){
 		strcat(msg_buffer, "Deck Shuffled.\n");
 	}
 	else if (strncmp(msg, "PLAYER", 6) == 0){
-		strcat(msg_buffer, "Player draws the following card(s)\n");
+		strcat(msg_buffer, "Dealer has dealt --- Player has the following cards:\n");
 		for (i = 0; i < 15; i++){
 			if(current_game.players_hand[i] == -1){
 				mutex_unlock(&blackjack_mutex);
@@ -313,6 +301,9 @@ static int write_msg(char msg[]){
 		strcat(msg_buffer, "Player has a total of ");
 		strcat(msg_buffer, tmp);
 	}
+	else if (strncmp(msg, "EMPTY DECK", 10) == 0){
+		strcat(msg_buffer, "Deck is empty. Reset to continue playing.\n");
+	}
 	
 	mutex_unlock(&blackjack_mutex);
 	return 0;
@@ -320,11 +311,10 @@ static int write_msg(char msg[]){
 
 static int get_card_value(int num){
 	int value;
-	//printk("%d", num);
 	
-	/*if ((num < 0) || (num > 51)){
+	if ((num < 0) || (num > 51)){
 		return -1;
-	}*/
+	}
 	
 	value = num % 13;
 	value += 1;
@@ -341,21 +331,37 @@ static int get_card_value(int num){
 }
 
 static int calculate_score(char player[]){
-	int i, total, ret;
+	int i, total, ret, aces;
+	total = 0;	aces = 0;
 	
 	if (strncmp(player, "PLAYER", 6) == 0){
 		for (i = 0; i < 15; i++){
 			if(current_game.players_hand[i] == -1){
+				
+				while(total > 21){
+					if (aces > 0){
+						total -= 10;
+						aces--;
+					}
+					else{
+						printk("Player busts. Game over!");
+						break;
+					}
+				}
+				
 				mutex_lock(&blackjack_mutex);
 				current_game.player_score = total;
 				mutex_unlock(&blackjack_mutex);
-				printk("%d", total);
 				return total;
 			}
 			
 			ret = get_card_value(current_game.players_hand[i]);
 			if(ret == -1){
 				return -1;
+			}
+			else if (ret == 11){			//Ace condition
+				aces++;
+				total += ret;
 			}
 			else {
 				total += ret;
@@ -365,6 +371,18 @@ static int calculate_score(char player[]){
 	else if ((strncmp(player, "DEALER", 6) == 0)){
 		for (i = 0; i < 15; i++){
 			if(current_game.dealers_hand[i] == -1){
+			
+				while(total > 21){
+					if (aces > 0){
+						total -= 10;
+						aces--;
+					}
+					else{
+						printk("Dealer busts. Game over!");
+						break;
+					}
+				}
+			
 				mutex_lock(&blackjack_mutex);
 				current_game.dealer_score = total;
 				mutex_unlock(&blackjack_mutex);
@@ -374,6 +392,10 @@ static int calculate_score(char player[]){
 			ret = get_card_value(current_game.dealers_hand[i]);
 			if(ret == -1){
 				return -1;
+			}
+			else if (ret == 11){			//Ace condition
+				aces++;
+				total += ret;
 			}
 			else {
 				total += ret;
