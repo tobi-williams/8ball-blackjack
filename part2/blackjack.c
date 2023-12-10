@@ -96,7 +96,10 @@ enum state {
 	DISABLED = 0,
 	RESET = 1,
 	SHUFFLED = 2,
-	ONGOING = 3,
+	DEAL = 3,
+	HOLD = 4,
+	END = 5,
+	REUSINGDECK = 6,
 };
 
 struct game_state {
@@ -108,7 +111,7 @@ struct game_state {
     int dealers_hand[15];
 };
 
-static char msg_buffer[1024] = {0};
+static char msg_buffer[5120] = {0};
 static struct game_state current_game;
 static DEFINE_MUTEX(blackjack_mutex);
 
@@ -137,7 +140,7 @@ static ssize_t device_read(struct file *file, char __user *buff, size_t len, lof
     	return -EFAULT;
     }
     
-    memset(msg_buffer, 0, 1024);
+    memset(msg_buffer, 0, 5120);
     
     return bytes_to_copy;
 }
@@ -157,6 +160,33 @@ static ssize_t device_write(struct file *file, const char __user *buff, size_t l
 
 
 
+	
+
+
+
+
+
+
+	if (current_game.current_state == 5) {
+		if (strncasecmp(command, "YES", 3) == 0) {
+			mutex_lock(&blackjack_mutex);
+			current_game.current_state = 6;
+			current_game.player_score = 0;
+			current_game.dealer_score = 0;
+			memset(current_game.players_hand, -1, sizeof(current_game.players_hand));
+			memset(current_game.dealers_hand, -1, sizeof(current_game.dealers_hand));
+			mutex_unlock(&blackjack_mutex);
+		}
+		else if (strncasecmp(command, "NO", 2) == 0) {
+			current_game.current_state = 0;
+		}
+		else {
+			if (write_msg("YES OR NO")){
+				return -ENOSPC;
+			}
+		}
+	}
+
 
 	if (strncasecmp(command, "RESET", 5) == 0){
 		reset();
@@ -167,7 +197,7 @@ static ssize_t device_write(struct file *file, const char __user *buff, size_t l
 	
 	if (strncasecmp(command, "SHUFFLE", 7) == 0){
 		
-		if (current_game.current_state == 0){
+		if ((current_game.current_state != 1) && (current_game.current_state != 2)){
 			
 			if (write_msg("INVALID STATE")){
 				return -ENOSPC;
@@ -182,50 +212,149 @@ static ssize_t device_write(struct file *file, const char __user *buff, size_t l
 	}
 	
 	if (strncasecmp(command, "DEAL", 4) == 0){
-		calculate_score("PLAYER");	calculate_score("DEALER");
-		
-		for (i = 0; i < 2; i++){		//deal 2 cards to player
-			card_dealt = deal();
-			
-			if (card_dealt == -1){
-				if (write_msg("EMPTY DECK")){
-					return -ENOSPC;
-				}
-				mutex_lock(&blackjack_mutex);
-				current_game.current_state = 0;
-				mutex_unlock(&blackjack_mutex);
-				break;
-			}
-			
-			mutex_lock(&blackjack_mutex);
-			current_game.players_hand[i] = card_dealt;
-			mutex_unlock(&blackjack_mutex);
-		}
 	
-		
-		for (i = 0; i < 2; i++){		//deal 2 cards to dealer
-			card_dealt = deal();
-			
-			if (card_dealt == -1){
-				if (write_msg("EMPTY DECK")){
+		if ((current_game.current_state != 2) && (current_game.current_state != 6)){
+			if (current_game.current_state != 3) {
+				if (write_msg("INVALID DEAL")){
 					return -ENOSPC;
 				}
+			}
+			else {
+				if (write_msg("MULTIPLE DEAL")){
+					return -ENOSPC;
+				}
+			}
+		}
+		else {
+			calculate_score("PLAYER");	calculate_score("DEALER");
+		
+			for (i = 0; i < 2; i++){		//deal 2 cards to player
+				card_dealt = deal();
+				
+				if (card_dealt == -1){
+					if (write_msg("EMPTY DECK")){
+						return -ENOSPC;
+					}
+					mutex_lock(&blackjack_mutex);
+					current_game.current_state = 0;
+					mutex_unlock(&blackjack_mutex);
+					break;
+				}
+				
 				mutex_lock(&blackjack_mutex);
-				current_game.current_state = 0;
+				current_game.players_hand[i] = card_dealt;
 				mutex_unlock(&blackjack_mutex);
-				break;
+			}
+		
+			
+			for (i = 0; i < 2; i++){		//deal 2 cards to dealer
+				card_dealt = deal();
+				
+				if (card_dealt == -1){
+					if (write_msg("EMPTY DECK")){
+						return -ENOSPC;
+					}
+					mutex_lock(&blackjack_mutex);
+					current_game.current_state = 0;
+					mutex_unlock(&blackjack_mutex);
+					break;
+				}
+				
+				mutex_lock(&blackjack_mutex);
+				current_game.dealers_hand[i] = card_dealt;
+				mutex_unlock(&blackjack_mutex);
 			}
 			
-			mutex_lock(&blackjack_mutex);
-			current_game.dealers_hand[i] = card_dealt;
-			mutex_unlock(&blackjack_mutex);
-		}
-		
-		
-		if (write_msg("PLAYER")){
+			
+			if (write_msg("PLAYER")){
 				return -ENOSPC;
 			}
+			
+			if (current_game.player_score == 21){
+				if (write_msg("BLACKJACK")){
+					return -ENOSPC;
+				}
+				
+				mutex_lock(&blackjack_mutex);
+				current_game.current_state = 5;
+				mutex_unlock(&blackjack_mutex);
+				
+				if (write_msg("END OF GAME")){
+					return -ENOSPC;
+				}
+			}
+			else {
+				if (write_msg("HIT OR HOLD")){
+					return -ENOSPC;
+				}
+			}
+		}
+		
 	}
+	
+	if (strncasecmp(command, "HIT", 3) == 0){
+		
+		if (current_game.current_state != 3){
+			if (write_msg("INVALID HIT")){
+				return -ENOSPC;
+			}
+		}
+		else {
+			card_dealt = deal();
+				
+			if (card_dealt == -1){
+				if (write_msg("EMPTY DECK")){
+					return -ENOSPC;
+				}
+				mutex_lock(&blackjack_mutex);
+				current_game.current_state = 0;
+				mutex_unlock(&blackjack_mutex);
+			}
+			else {
+				i = 0;
+				while(current_game.players_hand[i] != -1) {
+					i++;
+				}
+				mutex_lock(&blackjack_mutex);
+				current_game.players_hand[i] = card_dealt;
+				mutex_unlock(&blackjack_mutex);
+			}
+			
+			if (write_msg("PLAYER")){
+				return -ENOSPC;
+			}
+			
+			if (current_game.player_score > 21){
+				if (write_msg("EOG PLAYER BUSTS")){
+					return -ENOSPC;
+				}
+				
+				mutex_lock(&blackjack_mutex);
+				current_game.current_state = 5;
+				mutex_unlock(&blackjack_mutex);
+				
+				if (write_msg("END OF GAME")){
+					return -ENOSPC;
+				}
+			}
+			else {
+				if (write_msg("HIT OR HOLD")){
+					return -ENOSPC;
+				}
+			}
+			
+		}
+		
+	}
+	
+	
+	
+	
+	
+	
+	
+	
+	
 	
 	return len;
 }
@@ -272,13 +401,22 @@ static int write_msg(char msg[]){
 	char tmp[10];
 	mutex_lock(&blackjack_mutex);
 	
-	if ((strlen(msg_buffer) + 60) > 1024){
+	if ((strlen(msg_buffer) + 75) > 5120){
 		mutex_unlock(&blackjack_mutex);
 		return 1;
 	}
 	
 	if (strncmp(msg, "INVALID STATE", 13) == 0){
-		strcat(msg_buffer, "Invalid Sequence of States; Perform RESET before SHUFFLE.\n");
+		strcat(msg_buffer, "Invalid Sequence of Commands; Perform RESET before SHUFFLE.\n");
+	}
+	else if (strncmp(msg, "INVALID DEAL", 12) == 0){
+		strcat(msg_buffer, "Invalid Sequence of Commands; Perform RESET and SHUFFLE to begin a new game.\n");
+	}
+	else if (strncmp(msg, "MULTIPLE DEAL", 13) == 0){
+		strcat(msg_buffer, "Invalid Sequence of Commands; Cannot DEAL multiple times. Perform HIT or HOLD.\n");
+	}
+	else if (strncmp(msg, "INVALID HIT", 11) == 0){
+		strcat(msg_buffer, "Invalid Sequence of Commands; Perform DEAL before HIT.\n");
 	}
 	else if (strncmp(msg, "RESET", 5) == 0){
 		strcat(msg_buffer, "Deck Reset.\n");
@@ -302,7 +440,22 @@ static int write_msg(char msg[]){
 		strcat(msg_buffer, tmp);
 	}
 	else if (strncmp(msg, "EMPTY DECK", 10) == 0){
-		strcat(msg_buffer, "Deck is empty. Reset to continue playing.\n");
+		strcat(msg_buffer, "Deck is empty. RESET and SHUFFLE to continue playing.\n");
+	}
+	else if (strncmp(msg, "YES OR NO", 9) == 0){
+		strcat(msg_buffer, "Invalid Input. Enter YES or NO.\n");
+	}
+	else if (strncmp(msg, "BLACKJACK", 9) == 0){
+		strcat(msg_buffer, "Blackjack! Player wins.\n");
+	}
+	else if (strncmp(msg, "EOG PLAYER BUSTS", 16) == 0){
+		strcat(msg_buffer, "Player Busts!\n");
+	}
+	else if (strncmp(msg, "HIT OR HOLD", 9) == 0){
+		strcat(msg_buffer, "HIT or HOLD?\n");
+	}
+	else if (strncmp(msg, "END OF GAME", 11) == 0){
+		strcat(msg_buffer, "Game is over. Do you want to play again using the same deck? (YES or NO).\n");
 	}
 	
 	mutex_unlock(&blackjack_mutex);
@@ -344,7 +497,6 @@ static int calculate_score(char player[]){
 						aces--;
 					}
 					else{
-						printk("Player busts. Game over!");
 						break;
 					}
 				}
@@ -420,6 +572,7 @@ static int deal(){
 			tmp = current_game.card_numbers[i];
 			mutex_lock(&blackjack_mutex);
 			current_game.card_numbers[i] = -1;
+			current_game.current_state = 3;
 			mutex_unlock(&blackjack_mutex);
 			return tmp;
 		}
