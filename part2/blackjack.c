@@ -250,23 +250,26 @@ static ssize_t device_write(struct file *file, const char __user *buff, size_t l
 				mutex_unlock(&blackjack_mutex);
 			}
 			
-			mutex_lock(&blackjack_mutex);
-			strcat(msg_buffer, "Dealer has dealt 2 initial cards --- Player's hand:\n");	//print out the player's hand
-			mutex_unlock(&blackjack_mutex);
-			write_msg("PLAYERS HAND");
-			
-			if (current_game.player_score == 21){	//if player has 21 after the first 2 cards are dealt (a blackjack), player wins, game ends
-				write_msg("BLACKJACK");
-				
+			if (card_dealt != -1) {					//proceed with the code if the deck is not empty
 				mutex_lock(&blackjack_mutex);
-				current_game.current_state = 4;
+				strcat(msg_buffer, "Dealer has dealt 2 initial cards --- Player's hand:\n");	//print out the player's hand
 				mutex_unlock(&blackjack_mutex);
+				write_msg("PLAYERS HAND");
 				
-				write_msg("END OF GAME");
+				if (current_game.player_score == 21){	//if player has 21 after the first 2 cards are dealt (a blackjack), player wins, game ends
+					write_msg("BLACKJACK");
+					
+					mutex_lock(&blackjack_mutex);
+					current_game.current_state = 4;
+					mutex_unlock(&blackjack_mutex);
+					
+					write_msg("END OF GAME");
+				}
+				else {									//if the player doesnt have a blackjack after the first 2 card, ask if they want to hit or hold
+					write_msg("HIT OR HOLD");
+				}
 			}
-			else {									//if the player doesnt have a blackjack after the first 2 card, ask if they want to hit or hold
-				write_msg("HIT OR HOLD");
-			}
+			
 		}
 		
 	}
