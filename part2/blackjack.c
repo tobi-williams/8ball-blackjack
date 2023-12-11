@@ -317,24 +317,6 @@ static ssize_t device_write(struct file *file, const char __user *buff, size_t l
 				}
 			}
 			
-			/*mutex_lock(&blackjack_mutex);
-			strcat(msg_buffer, "Player has been dealt an additional card --- Player's hand:\n");
-			mutex_unlock(&blackjack_mutex);
-			write_msg("PLAYERS HAND");
-			
-			if (current_game.player_score > 21){
-				write_msg("PLAYER BUSTS");
-				
-				mutex_lock(&blackjack_mutex);
-				current_game.current_state = 4;
-				mutex_unlock(&blackjack_mutex);
-				
-				write_msg("END OF GAME");
-			}
-			else {
-				write_msg("HIT OR HOLD");
-			}*/
-			
 		}
 		
 	}
