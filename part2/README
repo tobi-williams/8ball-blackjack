@@ -4,11 +4,12 @@ Game Play
 
 Starting the Game
 RESET Command: To initiate the game, the player issues the RESET command, clearing any previous game state.
-SHUFFLE Command: Next, the player issues the SHUFFLE command for the dealer to shuffle and deal two cards each to both the player and the dealer.
+SHUFFLE Command: Next, the player issues the SHUFFLE command for the dealer to shuffle the card deck
+DEAL Command: The dealer deals two cards each to both the player and the dealer.
 Note: The player must issue the RESET and SHUFFLE command to begin a game.
 
 Module Commands
-Reset: Initializes a fresh deck of cards and clears both players' scores.
+Reset: Initializes a fresh deck of cards and clears both players' scores and any other game data/state.
 Shuffle: Shuffles the deck.
 Deal: Deals two cards to both the player and dealer.
 Hit: The player requests another card.
@@ -31,7 +32,7 @@ Error Handling: Appropriate error messages are provided for invalid inputs or co
 Locking: Mutexes are utilized to ensure that only one player can play the game at a time, maintaining consistency in the game state.
 
 Operating Instructions
-Compilation: Use make to compile, with a provided makefile.
+Compilation: Use make to compile, a makefile is provided.
 Loading Module: Load the device using sudo insmod blackjack.ko.
 Writing Commands: Write to the device using echo "command" > /dev/blackjack. The commands are case insensitive.
 Reading Responses: Read from the device using cat /dev/blackjack.
