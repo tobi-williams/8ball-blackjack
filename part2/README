@@ -1,0 +1,38 @@
+This project involves the development of a kernel module for playing Blackjack in a Linux environment. The game is played between a user at the command line and the dealer, which is the code running within the kernel module. The game is implemented using a standard 52-card deck, and the goal is to achieve a score as close to 21 as possible without going over.
+
+Game Play
+
+Starting the Game
+RESET Command: To initiate the game, the player issues the RESET command, clearing any previous game state.
+SHUFFLE Command: Next, the player issues the SHUFFLE command for the dealer to shuffle and deal two cards each to both the player and the dealer.
+Note: The player must issue the RESET and SHUFFLE command to begin a game.
+
+Module Commands
+Reset: Initializes a fresh deck of cards and clears both players' scores.
+Shuffle: Shuffles the deck.
+Deal: Deals two cards to both the player and dealer.
+Hit: The player requests another card.
+Hold: The player stops taking cards.
+
+Gameplay Interaction
+The game features two-way communication between the player (user space) and dealer (kernel space).
+After recievig the initial two cards, the dealer will offer the player additional cards, and the player can respond with HIT (for another card) or HOLD (to stop receiving cards).
+The dealer keeps track of the cards dealt and determines the winner based on the final count.
+At the end of a game the dealer will ask if the player wants to continue playing using the same deck. The player can respond YES or NO.
+
+Rules
+The dealer must continue to take cards until its count reaches or exceeds 17.
+Aces are valued at 11, unless the total goes over 21 in which each ace will then begin to be worth 1 depending on if the total is still over 21.
+In the event of a tie score, the dealer wins.
+
+Module Operation
+Reading/Writing: The module supports read and write operations. Commands are written to the character device, the user can then read the module's response.
+Error Handling: Appropriate error messages are provided for invalid inputs or commands.
+Locking: Mutexes are utilized to ensure that only one player can play the game at a time, maintaining consistency in the game state.
+
+Operating Instructions
+Compilation: Use make to compile, with a provided makefile.
+Loading Module: Load the device using sudo insmod blackjack.ko.
+Writing Commands: Write to the device using echo "command" > /dev/blackjack. The commands are case insensitive.
+Reading Responses: Read from the device using cat /dev/blackjack.
+Unloading Module: Unload the device with sudo rmmod blackjack.ko.
